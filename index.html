@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>そろばん 読み上げ算 練習ツール（複数問題対応版）</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>そろばん 読み上げ算 練習ツール（複数問題対応版）</h1>
+    <p class="note">※ ブラウザの音声合成（Web Speech API）を使用します。最初に「音声を初期化」を押してください。</p>
+  </header>
+
+  <section id="controls">
+    <div class="row">
+      <button id="initVoiceBtn">🎛️ 音声を初期化</button>
+      <button id="testSpeakBtn" disabled>🎤 テスト発話</button>
+    </div>
+
+    <fieldset>
+      <legend>設定</legend>
+      <div class="grid">
+        <label>桁数：
+          <input type="number" id="digits" min="2" max="12" value="4" />
+        </label>
+        <label>口数（1問あたり）：
+          <input type="number" id="kousu" min="5" max="20" value="10" />
+        </label>
+        <label>問題数（最大10）：
+          <input type="number" id="problemCount" min="1" max="10" value="5" />
+        </label>
+        <label>モード：
+          <select id="mode">
+            <option value="plus">足し算のみ</option>
+            <option value="mix">引き算を混ぜる（最大30%）</option>
+          </select>
+        </label>
+        <label>読み上げ速度：
+          <input type="number" id="rate" min="0.5" max="2" step="0.05" value="1.0" />
+        </label>
+        <label>ピッチ（高さ）：
+          <input type="number" id="pitch" min="0.5" max="2" step="0.05" value="1.0" />
+        </label>
+        <label>各口の間隔（秒）：
+          <input type="number" id="stepInterval" min="0.2" max="2" step="0.1" value="0.7" />
+        </label>
+        <label>問題と問題の間隔（秒）：
+          <input type="number" id="problemInterval" min="1" max="60" step="1" value="10" />
+        </label>
+        <label>声（Voice）：
+          <select id="voiceSelect"></select>
+          <button id="refreshVoices">再取得</button>
+        </label>
+      </div>
+      <div class="row">
+        <label class="checkbox">
+          <input type="checkbox" id="useKanji" /> 数字を和文数詞（漢数字）で読む
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="row">
+      <button id="startBtn" disabled>▶ 読み上げ開始</button>
+      <button id="pauseBtn" disabled>⏸ 一時停止</button>
+      <button id="resumeBtn" disabled>▶ 再開</button>
+      <button id="stopBtn" disabled>⏹ 停止</button>
+      <button id="previewBtn" disabled>🔊 1口プレビュー</button>
+    </div>
+  </section>
+
+  <section id="log">
+    <h2>進行ログ / 式</h2>
+    <pre id="logArea"></pre>
+    <h2>答え（最後にまとめて表示）</h2>
+    <ol id="answers"></ol>
+  </section>
+
+  <footer>
+    <small>注意：バックグラウンドにすると読み上げが止まる/遅れることがあります。iOSはサイレント解除も確認。</small>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
