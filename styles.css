@@ -1,3 +1,4 @@
+
 /* スタイル */
 :root { --bg: #0f172a; --panel: #111827; --text: #e5e7eb; --accent: #22c55e; --muted: #94a3b8; }
 * { box-sizing: border-box; }
@@ -5,7 +6,6 @@ body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hi
 header, footer { padding: 16px 20px; }
 header h1 { margin: 0 0 8px; font-size: 1.3rem; }
 .note { color: var(--muted); }
-
 #controls { background: var(--panel); padding: 16px 20px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
@@ -15,8 +15,12 @@ button { padding: 8px 12px; border: none; border-radius: 8px; background: #1f293
 button:hover { background: #374151; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .checkbox { gap: 8px; flex-direction: row; }
-
 #log { padding: 16px 20px; }
 #logArea { background: #0b1220; border: 1px solid #334155; border-radius: 8px; min-height: 200px; padding: 12px; overflow: auto; }
 #answers { background: #0b1220; border: 1px solid #334155; border-radius: 8px; padding: 12px; }
 #answers li { margin: 6px 0; }
+
+/* 追加：回答リストをクリックで復習できると分かる見た目 */
+#answers li { cursor: pointer; border-radius: 6px; padding: 6px; }
+#answers li:hover { background: #1f2937; }
+#answers li::after { content: "  ↺"; color: var(--muted); font-size: 0.9em; }
