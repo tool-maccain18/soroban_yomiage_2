@@ -3,7 +3,6 @@
 // ・音声初期化強化（onvoiceschanged待機＋発話アンロック）
 // ・読み：同符号連続時は符合語省略／最後は「円、でわ」を連続
 // ・数字：漢数字読み時に 兆・億・万 の直後へ極短ポーズ（問題=100ms／答え=150ms）
-// ・出題：減算はスムーズ（直前口の絶対値×0.8以下）、途中合計が「設定桁数から2桁下」を下回らないよう制御
 // ・追加：回答リストから問題をクリックして単体再読上（復習）／答え発表前の間隔=問題間隔
 // ・標準問題間隔：初期値 10 秒
 
@@ -32,7 +31,8 @@ const answersList = document.getElementById('answers');
 // 標準の問題間隔（回答記入時間を考慮した 10 秒）
 document.addEventListener('DOMContentLoaded', () => {
   try {
-    if (!problemIntervalInput.value || Number.isNaN(parseFloat(problemIntervalInput.value))) {
+    if (!problemIntervalInput.value ||
+        Number.isNaN(parseFloat(problemIntervalInput.value))) {
       problemIntervalInput.value = '10';
     }
   } catch {}
@@ -44,6 +44,10 @@ let selectedVoice = null;
 let running = false;
 let cancelled = false;
 let voicesReady = false;
+
+// 追加：タイマー用（第1問開始～答え発表直前）
+let startTime = null;
+
 // 追加：直近の出題セットと設定（復習用）
 let lastRunProblems = [];
 let lastRunSettings = null;
@@ -61,9 +65,10 @@ function populateVoices() {
   });
   const jaIndex = voices.findIndex(v => v.lang && v.lang.toLowerCase().startsWith('ja'));
   voiceSelect.value = jaIndex >= 0 ? jaIndex : 0;
-  selectedVoice = voices[voiceSelect.value] || null;
+  selectedVoice = voices[voiceSelect.value] ?? null;
   voicesReady = voices.length > 0;
 }
+
 async function ensureVoices(timeoutMs = 2000) {
   populateVoices();
   if (voicesReady) return true;
@@ -83,6 +88,7 @@ async function ensureVoices(timeoutMs = 2000) {
     tick();
   });
 }
+
 async function initVoicesFlow() {
   try { window.speechSynthesis.cancel(); } catch {}
   const ok = await ensureVoices(2500);
@@ -96,9 +102,10 @@ async function initVoicesFlow() {
   previewBtn.disabled = !ready;
   return ready;
 }
+
 window.speechSynthesis.onvoiceschanged = () => { populateVoices(); };
 refreshVoicesBtn.addEventListener('click', () => { populateVoices(); });
-voiceSelect.addEventListener('change', () => { selectedVoice = voices[voiceSelect.value] || null; });
+voiceSelect.addEventListener('change', () => { selectedVoice = voices[voiceSelect.value] ?? null; });
 initVoiceBtn.addEventListener('click', async () => {
   const ready = await initVoicesFlow();
   if (ready) {
@@ -108,6 +115,7 @@ initVoiceBtn.addEventListener('click', async () => {
 testSpeakBtn.addEventListener('click', async () => {
   await speak('テスト発話です。', baseVoiceParams());
 });
+
 pauseBtn.addEventListener('click', () => { window.speechSynthesis.pause(); });
 resumeBtn.addEventListener('click', () => { window.speechSynthesis.resume(); });
 stopBtn.addEventListener('click', () => {
@@ -134,11 +142,16 @@ answersList.addEventListener('click', async (e) => {
 startBtn.addEventListener('click', async () => {
   if (running) return;
   cancelled = false; running = true; toggleRunButtons(true); clearUI();
+
   const settings = readSettings();
   const problems = Array.from({ length: settings.problemCount }, () => generateProblem(settings));
+
   // 復習用に保持
   lastRunProblems = problems;
   lastRunSettings = settings;
+
+  // ★タイマー開始（第1問に入る前）
+  startTime = performance.now();
 
   // ログ出力（式）
   problems.forEach((p, idx) => {
@@ -154,12 +167,19 @@ startBtn.addEventListener('click', async () => {
       await playProblem(problems[i], settings);
       if (i < problems.length - 1) await delay(settings.problemInterval * 1000);
     }
+
     if (!cancelled) {
-      // ★ 変更点：最後の問題から答え発表までの待ち時間 = 問題間隔
+      // ★答え発表「直前」でタイマー停止＆ログ出力
+      const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(1);
+      logArea.textContent += `所要時間: ${elapsedSec} 秒\n\n`;
+
+      // 従来通り：最終問題から答え発表までの待機 = 問題間隔
       await delay(Math.max(0, settings.problemInterval) * 1000);
+
+      // 答えの発表（既存処理）
       await speak('答えの発表です。', baseVoiceParams());
 
-      // 回答リストを生成（クリックで復習できるよう data-index を付与）
+      // 回答リスト生成（クリックで復習可能）
       problems.forEach((p, idx) => {
         const li = document.createElement('li');
         li.textContent = `第${idx + 1}問： ${p.result}`;
@@ -167,6 +187,7 @@ startBtn.addEventListener('click', async () => {
         li.title = 'クリックするとこの問題をもう一度読み上げます';
         answersList.appendChild(li);
       });
+
       // 答えの読み上げ（従来通り）
       for (let i = 0; i < problems.length; i++) {
         await speak(`第${i + 1}問、`, baseVoiceParams());
@@ -181,10 +202,10 @@ startBtn.addEventListener('click', async () => {
 // ---------- 設定／ユーティリティ ----------
 function readSettings() {
   return {
-    digits: clamp(parseInt(digitsInput.value), 2, 12),
+    digits: clamp(parseInt(digitsInput.value), 1, 16),
     kousu: clamp(parseInt(kousuInput.value), 1, 50),
     problemCount: clamp(parseInt(problemCountInput.value), 1, 10),
-    mode: modeSelect.value,
+    mode: modeSelect.value,   // 'plus' or 'mix'
     rate: parseFloat(rateInput.value),
     pitch: parseFloat(pitchInput.value),
     stepInterval: parseFloat(stepIntervalInput.value),
@@ -210,39 +231,53 @@ function speak(text, { rate = 1.0, pitch = 1.0, voice = null } = {}) {
 function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 function randomNDigits(n) { const min = 10 ** (n - 1); const max = 10 ** n - 1; return Math.floor(Math.random() * (max - min + 1)) + min; }
 
-// ---------- 出題ロジック（減算のスムーズ＋途中下限：設定桁数から2桁下） ----------
+// ---------- 出題ロジック（減算上限40%／1・2口加算固定／最初の口以下は禁止） ----------
 function generateProblem(settings) {
-  const SMOOTH_MINUS_FACTOR = 0.8; // 減算値は直前口の絶対値×0.8以下
-  const LOWER_BOUND = Math.pow(10, Math.max(0, settings.digits - 2)); // 途中合計はこの下限未満にしない
   const steps = [];
   let sum = 0;
-  let prevAbs = null; // 直前の口の絶対値
+  let firstStepValue = null;                 // 最初の口の値（比較用）
+  const maxMinusCount = Math.floor(settings.kousu * 0.4);
+  let minusCount = 0;
+
   for (let i = 0; i < settings.kousu; i++) {
     let value = randomNDigits(settings.digits);
     let op = '+';
-    if (settings.mode === 'mix') {
-      const tryMinus = Math.random() < 0.3;
-      if (tryMinus && sum > 0) {
-        // 基本：少なくとも 1 を残す（ゼロ回避）
-        let maxDec = sum - 1;
-        // 動的下限：sum - value >= LOWER_BOUND → value <= sum - LOWER_BOUND
-        maxDec = Math.min(maxDec, sum - LOWER_BOUND);
-        // スムーズ制約：直前口の 80% 以下
-        if (prevAbs !== null) {
-          const smoothCap = Math.floor(prevAbs * SMOOTH_MINUS_FACTOR);
-          maxDec = Math.min(maxDec, smoothCap);
-        }
-        if (maxDec >= 1) {
+
+    // 1・2口目は必ず足し算
+    if (i < 2) {
+      op = '+';
+    } else if (settings.mode === 'mix') {
+      // 減算候補（従来同様の軽い確率）
+      const wantMinus = Math.random() < 0.3;
+
+      if (wantMinus && minusCount < maxMinusCount) {
+        // 仮に減算した場合の合計
+        const wouldBe = sum - value;
+
+        // ★新ルール：最初の口の数字以下になるなら減算禁止（加算へ変更）
+        const threshold = firstStepValue ?? 0;
+        if (wouldBe > threshold) {
           op = '-';
-          value = Math.min(value, maxDec);
-          if (value <= 0) value = Math.floor(Math.random() * maxDec) + 1;
+        } else {
+          op = '+';
         }
+      } else {
+        op = '+';
       }
     }
-    if (op === '+') sum += value; else sum -= value;
-    prevAbs = Math.abs(value);
+
+    // 合計更新
+    if (op === '+') {
+      sum += value;
+    } else {
+      sum -= value;
+      minusCount++;
+    }
+
+    if (i === 0) firstStepValue = value;
     steps.push({ op, value });
   }
+
   return { steps, result: sum };
 }
 
@@ -257,6 +292,7 @@ function splitKanjiByBigUnits(kanjiStr) {
   if (buf) parts.push(buf);
   return parts;
 }
+
 async function speakNumberWithUnitPauses(n, useKanji, tail, voiceParams, unitPauseMs = 120) {
   if (!useKanji) { await speak(String(n) + tail, voiceParams); return; }
   const k = toKanjiNumber(n);
@@ -327,3 +363,4 @@ async function readSingleProblem(index, settings) {
     reviewing = false;
   }
 }
+
