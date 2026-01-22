@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -53,9 +54,18 @@
           <button id="refreshVoices">再取得</button>
         </label>
       </div>
+
       <div class="row">
         <label class="checkbox">
-          <input type="checkbox" id="useKanji" /> 数字を和文数詞（漢数字）で読む
+   	  <input type="checkbox" id="useKanji" checked />数字を和文数詞（漢数字）で読む
+        </label>
+      </div>
+
+      <!-- ▼ 追加：開始時エクスポートの制御チェック -->
+      <div class="row">
+        <label class="checkbox">
+   	 <input type="checkbox" id="exportAtStart" checked />
+          開始時に問題を保存する（CSV）
         </label>
       </div>
     </fieldset>
@@ -72,6 +82,7 @@
   <section id="log">
     <h2>進行ログ / 式</h2>
     <pre id="logArea"></pre>
+
     <h2>答え（最後にまとめて表示）</h2>
     <ol id="answers"></ol>
   </section>
