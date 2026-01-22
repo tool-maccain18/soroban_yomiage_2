@@ -2,13 +2,13 @@
 // そろばん 読み上げ算 練習ツール（統合最終版）
 // ・音声初期化強化（onvoiceschanged待機＋発話アンロック）
 // ・読み：同符号連続時は符合語省略／最後は「円、でわ」を連続
-// ・数字：漢数字読み時に 兆・億・万 の直後へ極短ポーズ（問題=100ms／答え=150ms）
-// ・復習：回答リストから単体再読上
+// ・数字：漢数字読み時に 兆・億・万 の直後へ極短ポーズ（問題=100ms/答え=150ms）
+// ・復習：回答リストから単体再読み上
 // ・タイマー：第1問開始→答え発表「直前」までの所要時間をログ表示
 // ・採点UI：答え発表後にまとめて自己採点（ラジオ選択）→CSVダウンロード
 // ・CSV：英語ヘッダー／UTF-8 BOM付与／ファイル名に開始時刻（なければダウンロード時刻）
-// ・減算ロジック：減算総数≤40%、最初の2口は加算固定、最初の口以下に落ちる減算は禁止
-// ・既存の不自然制約（直前口80%／途中下限）は完全削除
+// ・減算ロジック：減算総数<=40%、最初の2口は加算固定、最初の口以下に落ちる減算は禁止
+// ・既存の不自然制約（直前口80%/途中下限）は完全削除
 
 // ---------- DOM 参照 ----------
 const voiceSelect = document.getElementById('voiceSelect');
@@ -31,12 +31,14 @@ const problemIntervalInput = document.getElementById('problemInterval');
 const useKanjiCheck = document.getElementById('useKanji');
 const logArea = document.getElementById('logArea');
 const answersList = document.getElementById('answers');
+// ★追加：開始時CSV出力チェック
+const exportAtStartCheck = document.getElementById('exportAtStart'); // ← NEW
 
 // 標準の問題間隔（回答記入時間を考慮した 10 秒）
 document.addEventListener('DOMContentLoaded', () => {
   try {
-    if (!problemIntervalInput.value ||
-        Number.isNaN(parseFloat(problemIntervalInput.value))) {
+    if (!problemIntervalInput.value
+        || Number.isNaN(parseFloat(problemIntervalInput.value))) {
       problemIntervalInput.value = '10';
     }
   } catch {}
@@ -48,18 +50,15 @@ let selectedVoice = null;
 let running = false;
 let cancelled = false;
 let voicesReady = false;
-
 // ★追加：タイマー用（第1問開始～答え発表直前）
-let startTime = null;          // performance.now() 用（経過秒）
-let startDateTime = null;      // Date オブジェクトで開始時刻を保持（ファイル名用）
-
+let startTime = null;         // performance.now() 用（経過秒）
+let startDateTime = null;     // Date オブジェクト（ファイル名用）
 // ★追加：直近の出題セットと設定（復習・CSV用）
 let lastRunProblems = [];
 let lastRunSettings = null;
-let reviewing = false; // 復習中の二重起動防止
-
+let reviewing = false;        // 復習中の二重起動防止
 // ★追加：採点結果保持
-let resultsLog = []; // { index, steps, answer, score }
+let resultsLog = [];          // { index, steps, answer, score }
 
 // ★追加：時刻フォーマッタ（YYYYMMDD_HHMMSS）
 function formatDateTime(dt) {
@@ -88,7 +87,6 @@ function populateVoices() {
   selectedVoice = voices[voiceSelect.value] ?? null;
   voicesReady = voices.length > 0;
 }
-
 async function ensureVoices(timeoutMs = 2000) {
   populateVoices();
   if (voicesReady) return true;
@@ -108,7 +106,6 @@ async function ensureVoices(timeoutMs = 2000) {
     tick();
   });
 }
-
 async function initVoicesFlow() {
   try { window.speechSynthesis.cancel(); } catch {}
   const ok = await ensureVoices(2500);
@@ -122,7 +119,6 @@ async function initVoicesFlow() {
   previewBtn.disabled = !ready;
   return ready;
 }
-
 window.speechSynthesis.onvoiceschanged = () => { populateVoices(); };
 refreshVoicesBtn.addEventListener('click', () => { populateVoices(); });
 voiceSelect.addEventListener('change', () => { selectedVoice = voices[voiceSelect.value] ?? null; });
@@ -135,7 +131,6 @@ initVoiceBtn.addEventListener('click', async () => {
 testSpeakBtn.addEventListener('click', async () => {
   await speak('テスト発話です。', baseVoiceParams());
 });
-
 pauseBtn.addEventListener('click', () => { window.speechSynthesis.pause(); });
 resumeBtn.addEventListener('click', () => { window.speechSynthesis.resume(); });
 stopBtn.addEventListener('click', () => {
@@ -162,10 +157,8 @@ answersList.addEventListener('click', async (e) => {
 startBtn.addEventListener('click', async () => {
   if (running) return;
   cancelled = false; running = true; toggleRunButtons(true); clearUI();
-
   const settings = readSettings();
   const problems = Array.from({ length: settings.problemCount }, () => generateProblem(settings));
-
   // 復習・CSV用に保持
   lastRunProblems = problems;
   lastRunSettings = settings;
@@ -175,6 +168,15 @@ startBtn.addEventListener('click', async () => {
   startTime = performance.now();
   // ★開始時刻（Date）を保持（ファイル名に利用）
   startDateTime = new Date();
+
+  // ★開始直前の問題CSV（チェックON時のみ）
+  if (exportAtStartCheck && exportAtStartCheck.checked) {
+    try { exportProblemsCSVAtStart(settings, problems); } catch {}
+  }
+
+  // ★開始前のアナウンス＆10秒ポーズ
+  await speak('10秒後にスタートします。', baseVoiceParams());
+  await delay(10000);
 
   // ログ出力（式）
   problems.forEach((p, idx) => {
@@ -190,9 +192,8 @@ startBtn.addEventListener('click', async () => {
       await playProblem(problems[i], settings);
       if (i < problems.length - 1) await delay(settings.problemInterval * 1000);
     }
-
     if (!cancelled) {
-      // ★答え発表「直前」でタイマー停止＆ログ出力
+      // ★答え発表「直前」でタイマー停止＆ログ
       const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(1);
       logArea.textContent += `所要時間: ${elapsedSec} 秒\n\n`;
 
@@ -202,7 +203,7 @@ startBtn.addEventListener('click', async () => {
       // 答えの発表（既存処理）
       await speak('答えの発表です。', baseVoiceParams());
 
-      // 回答リスト生成（クリックで復習可能）
+      // 回答リスト生成（クリックで復習可）
       problems.forEach((p, idx) => {
         const li = document.createElement('li');
         li.textContent = `第${idx + 1}問： ${p.result}`;
@@ -211,13 +212,13 @@ startBtn.addEventListener('click', async () => {
         answersList.appendChild(li);
       });
 
-      // 答えの読み上げ（従来通り）
+      // 答えの読み上げ（既存）
       for (let i = 0; i < problems.length; i++) {
         await speak(`第${i + 1}問、`, baseVoiceParams());
         await speakNumberWithUnitPauses(problems[i].result, useKanjiCheck.checked, '', baseVoiceParams(), 150);
       }
 
-      // ★採点UI（まとめて入力）を表示
+      // 採点UIを表示
       showScoringUI(problems);
     }
   } finally {
@@ -231,7 +232,7 @@ function readSettings() {
     digits: clamp(parseInt(digitsInput.value), 1, 12), // 最小1桁
     kousu: clamp(parseInt(kousuInput.value), 1, 50),
     problemCount: clamp(parseInt(problemCountInput.value), 1, 10),
-    mode: modeSelect.value,   // 'plus' or 'mix'
+    mode: modeSelect.value, // 'plus' or 'mix'
     rate: parseFloat(rateInput.value),
     pitch: parseFloat(pitchInput.value),
     stepInterval: parseFloat(stepIntervalInput.value),
@@ -241,11 +242,11 @@ function readSettings() {
 }
 function baseVoiceParams() { const v = selectedVoice; return { rate: parseFloat(rateInput.value), pitch: parseFloat(pitchInput.value), voice: v }; }
 function toggleRunButtons(isRunning) { startBtn.disabled = isRunning; pauseBtn.disabled = !isRunning; resumeBtn.disabled = !isRunning; stopBtn.disabled = !isRunning; }
-function clearUI() { 
-  logArea.textContent = ''; 
-  answersList.innerHTML = ''; 
-  const old = document.getElementById('scoringArea'); 
-  if (old) old.remove(); 
+function clearUI() {
+  logArea.textContent = '';
+  answersList.innerHTML = '';
+  const old = document.getElementById('scoringArea');
+  if (old) old.remove();
 }
 function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
 function speak(text, { rate = 1.0, pitch = 1.0, voice = null } = {}) {
@@ -260,36 +261,32 @@ function speak(text, { rate = 1.0, pitch = 1.0, voice = null } = {}) {
   });
 }
 function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
-function randomNDigits(n) { 
+function randomNDigits(n) {
   if (n === 1) return Math.floor(Math.random() * 9) + 1; // 1桁は 1-9
-  const min = 10 ** (n - 1); 
-  const max = 10 ** n - 1; 
-  return Math.floor(Math.random() * (max - min + 1)) + min; 
+  const min = 10 ** (n - 1);
+  const max = 10 ** n - 1;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-// ---------- 出題ロジック（減算上限40%／1・2口加算固定／最初の口以下は禁止） ----------
+// ---------- 出題ロジック（減算上限40%/1・2口加算固定/最初の口以下は禁止） ----------
 function generateProblem(settings) {
   const steps = [];
   let sum = 0;
-  let firstStepValue = null;                 // 最初の口の値（比較用）
+  let firstStepValue = null; // 最初の口の値（比較用）
   const maxMinusCount = Math.floor(settings.kousu * 0.4);
   let minusCount = 0;
-
   for (let i = 0; i < settings.kousu; i++) {
     let value = randomNDigits(settings.digits);
     let op = '+';
-
     // 1・2口目は必ず足し算
     if (i < 2) {
       op = '+';
     } else if (settings.mode === 'mix') {
       // 減算候補（従来同様の軽い確率）
       const wantMinus = Math.random() < 0.3;
-
       if (wantMinus && minusCount < maxMinusCount) {
         // 仮に減算した場合の合計
         const wouldBe = sum - value;
-
         // ★新ルール：最初の口の数字以下になるなら減算禁止（加算へ変更）
         const threshold = firstStepValue ?? 0;
         if (wouldBe > threshold) {
@@ -301,7 +298,6 @@ function generateProblem(settings) {
         op = '+';
       }
     }
-
     // 合計更新
     if (op === '+') {
       sum += value;
@@ -309,11 +305,9 @@ function generateProblem(settings) {
       sum -= value;
       minusCount++;
     }
-
     if (i === 0) firstStepValue = value;
     steps.push({ op, value });
   }
-
   return { steps, result: sum };
 }
 
@@ -328,7 +322,6 @@ function splitKanjiByBigUnits(kanjiStr) {
   if (buf) parts.push(buf);
   return parts;
 }
-
 async function speakNumberWithUnitPauses(n, useKanji, tail, voiceParams, unitPauseMs = 120) {
   if (!useKanji) { await speak(String(n) + tail, voiceParams); return; }
   const k = toKanjiNumber(n);
@@ -356,7 +349,6 @@ async function playProblem(problem, settings) {
     if (!last) await delay(settings.stepInterval * 1000);
   }
 }
-
 function formatNumber(n, useKanji) { return useKanji ? toKanjiNumber(n) : String(n); }
 
 // ---------- 簡易漢数字化（万・億・兆・京まで） ----------
@@ -401,14 +393,11 @@ async function readSingleProblem(index, settings) {
 }
 
 // ---------- 採点UI／CSV ----------
-
-// 採点フォームをログ欄に生成（まとめて入力）
 function showScoringUI(problems) {
   const scoringDiv = document.createElement('div');
   scoringDiv.id = 'scoringArea';
   scoringDiv.style.marginTop = '20px';
   scoringDiv.innerHTML = '<h3>採点入力（まとめて）</h3>';
-
   problems.forEach((p, idx) => {
     const wrapper = document.createElement('div');
     wrapper.style.marginBottom = '8px';
@@ -420,7 +409,6 @@ function showScoringUI(problems) {
     `;
     scoringDiv.appendChild(wrapper);
   });
-
   const exportBtn = document.createElement('button');
   exportBtn.textContent = 'CSVで保存';
   exportBtn.style.marginTop = '12px';
@@ -428,7 +416,6 @@ function showScoringUI(problems) {
     collectScores(problems);
     exportCSV();
   });
-
   scoringDiv.appendChild(exportBtn);
   logArea.appendChild(scoringDiv);
 }
@@ -449,13 +436,9 @@ function collectScores(problems) {
   });
 }
 
-
 // CSVを生成してダウンロード（英語ヘッダー／BOM付与／時刻付きファイル名）
 function exportCSV() {
-  // 文字化け対策：UTF-8 BOM 付与
   const BOM = '\uFEFF';
-
-  // 英語ヘッダー（StepInterval／ProblemInterval を追加）
   const header = [
     'Date',            // 例: ローカライズ表示（toLocaleDateString）
     'Digits',
@@ -463,14 +446,13 @@ function exportCSV() {
     'ProblemCount',
     'Mode',
     'Rate',
-    'StepInterval',    // ★追加：各口のインターバル（秒）
-    'ProblemInterval', // ★追加：問題間のインターバル（秒）
+    'StepInterval',
+    'ProblemInterval',
     'ProblemIndex',
     'Steps',           // カンマ区切りのためフィールドはダブルクォートで括る
     'Answer',
     'SelfScore'        // FirstTryCorrect / SecondTryCorrect / MoreThanTwoMistakes / Unfilled
   ];
-
   // 日本語スコア→英語に変換
   const scoreMap = {
     '1発正解': 'FirstTryCorrect',
@@ -478,36 +460,73 @@ function exportCSV() {
     '2回以上間違い': 'MoreThanTwoMistakes',
     '未入力': 'Unfilled'
   };
-
   const rows = resultsLog.map(r => [
-    new Date().toLocaleDateString(),         // Date（ローカライズ）
+    new Date().toLocaleDateString(),        // Date（ローカライズ）
     lastRunSettings.digits,
     lastRunSettings.kousu,
     lastRunSettings.problemCount,
     lastRunSettings.mode,
     lastRunSettings.rate,
-    lastRunSettings.stepInterval,            // ★追加：各口インターバル
-    lastRunSettings.problemInterval,         // ★追加：問題間インターバル
+    lastRunSettings.stepInterval,
+    lastRunSettings.problemInterval,
     r.index,
-    `"${r.steps}"`,                           // ステップにカンマが含まれるためクォート
+    `"${r.steps}"`,
     r.answer,
     scoreMap[r.score] ?? 'Unfilled'
   ]);
-
   const csvContent = [header.join(','), ...rows.map(row => row.join(','))].join('\n');
-
-  // 開始時刻（第1問開始）を優先／無ければダウンロード時刻
   const ts = startDateTime ? formatDateTime(startDateTime) : formatDateTime(new Date());
   const filename = `soroban_log_${ts}.csv`;
-
-  // ダウンロード（BOM付きUTF-8）
   const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
   link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
-  // 後片付け（任意）
+// ★追加：問題セットCSV（開始時エクスポート）
+function exportProblemsCSVAtStart(settings, problems) {
+  const BOM = '\uFEFF';
+  const header = [
+    'StartTimestamp',      // ISO形式
+    'Digits',
+    'Kousu',
+    'ProblemCount',
+    'Mode',
+    'Rate',
+    'StepInterval',
+    'ProblemInterval',
+    'UseKanji',
+    'ProblemIndex',
+    'Steps',               // 例: "+12345,-67890"
+    'Answer'
+  ];
+  // 開始時刻（既存の startDateTime を利用）
+  const startedAt = (startDateTime ?? new Date()).toISOString();
+  const rows = problems.map((p, idx) => ([
+    startedAt,
+    settings.digits,
+    settings.kousu,
+    settings.problemCount,
+    settings.mode,
+    settings.rate,
+    settings.stepInterval,
+    settings.problemInterval,
+    settings.useKanji ? 'true' : 'false',
+    idx + 1,
+    `"${p.steps.map(s => `${s.op}${s.value}`).join(',')}"`,
+    p.result
+  ]));
+  const csv = [header.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const ts = startDateTime ? formatDateTime(startDateTime) : formatDateTime(new Date());
+  const filename = `soroban_problems_${ts}.csv`;
+  const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
